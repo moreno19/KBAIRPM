@@ -23,19 +23,6 @@ class Agent:
         pass
 
     #add missing attributes to be able to compare (mostly for VERBAL)
-    '''
-    possible (existing verbal) attributes:
-
-    shape - "something"
-    fill - y/n
-    size - huge, very large, large, medium, small
-
-    NOT ALWAYS PRESENT - we want to add these
-    angle - [0,360)
-    alignment - "bottom-right"
-    inside - a, b, c, etc.
-    above - a, b, c, etc.
-    '''
     def populateAttributes(self, box):
         for shape in box:
             if 'angle' not in box[shape].attributes:
@@ -80,6 +67,7 @@ class Agent:
     #used to figure out which shape from box1 to box2 is most likely corresponding
     #returns dict of mappings: {'a':'c'}
     def matchShapes(self, box1, box2):
+
         # matching shapes stored as pairs
         # this is possibly modified after comparing new shapes, as more relevant ones could be found
         # this is returned 
@@ -91,14 +79,12 @@ class Agent:
         # { 'b': 7 }
         used = dict()
 
+        # convert to list so we can track the shape at certain index
+        box2list = list(box2) 
+
         self.populateAttributes(box1)
         self.populateAttributes(box2)
 
-        box2list = list(box2)
-        
-
-        # TODO - if it finds a higher match later on, go back and correct previous matchings 
-        # if there's nothing let, mark as disappeared (#11)
         for shape1 in box1:
             similarities = []
 
@@ -109,9 +95,7 @@ class Agent:
                                 box2[shape2].attributes
                             )
 
-                similarities.append( 
-                    relevancy
-                )
+                similarities.append( relevancy )
 
             #get the most similar shape of the ones we saw
             r = max(similarities) #relevancy
@@ -141,7 +125,95 @@ class Agent:
                 matches[shape1] = candidate
         
         print matches
+        return matches
             
+
+    # returns the amount of deletions based on the number of shapes
+    # returns 0 if no deletions
+    def deleteCheck(self, box1, box2):
+        return abs( len(box1) - len(box2) )
+
+    # get shapes (they are matched now), 
+    # compare attribute changes between figure 1 and figure 2
+    # return transformation dictionary
+    '''
+    possible (existing verbal) attributes:
+
+    angle - [0,360)
+    inside - a, b, c, etc.
+    shape - "something"
+    above - a, b, c, etc.
+    size - huge, very large, large, medium, small
+    alignment - "bottom-right"
+    fill - y/n and bottom, top, left, right
+    
+    '''
+    def getTransformations(self, box1, box2, matches):
+        transformlist = []
+
+        for shape1, shape2 in matches.items():
+            transformations = dict()
+            a1 = box1[shape1].attributes
+            a2 = box2[shape2].attributes
+
+            #if EXACTLY the same, set empty string for this match - no transformation
+            if self.compareDicts(a1, a2) == len(a1): 
+                transformlist.append('nochange')
+                break
+
+            #angle - no change is 0
+            if a2['angle'] and a1['angle']:
+                transformations['angle'] = int( a2['angle'] ) - int( a1['angle'] )
+            else:
+                transformations['angle'] = 0
+
+            #shape
+            if a1['shape'] != a2['shape']:
+                transformations['shape'] = [ a1['shape'], a2['shape'] ]
+            else:
+                transformations['shape'] = None
+
+            #above
+            if a1['above'] != a2['above']:
+                transformations['above'] = [ a1['above'], a2['above'] ]
+            else:
+                transformations['above'] = None
+
+            #TODO - right half, left half, top half, bottom half
+            #fill
+            if a1['fill'] == 'no' and a2['fill'] == 'yes':
+                transformations['fill'] = 'shadein'
+            elif a1['fill'] == 'yes' and a2['fill'] == 'no':
+                transformations['fill'] = 'deleteshade'
+            else:
+                transformations['fill'] = None
+
+            #alignment - TODO use centers of shape to track movement. For now will only be verbal
+            if a1['alignment'] != a2['alignment']:
+                transformations['alignment'] = [ a1['alignment'], a2['alignment'] ]
+            else:
+                transformations['alignment'] = None
+
+            #size - small, medium, large, very large, huge
+            sizes = {'small':1, 'medium':2, 'large':3, 'very large':4, 'huge':5 }
+            a1size = a1['size']
+            a2size = a2['size']
+
+            if a1size != a2size: #shrinking and growing
+                transformations['size'] = (sizes[a2size] - sizes[a1size])
+            else:
+                transformations['size'] = None
+
+            #inside
+            #this one needs some more thought
+
+            transformlist.append(transformations)
+        return transformlist
+
+        #TODO deal with deletions
+
+
+
 
 
 
@@ -167,16 +239,16 @@ class Agent:
             box2_shapes = box2.objects
             box3_shapes = box3.objects
 
-
-            self.matchShapes(box1_shapes, box2_shapes)
-            '''
-            get the attribute maps for "corresponding" shapes
-            closest set (least differences) is defined as corresponding
+            #match up corresponding shapes between transformations
+            matches = self.matchShapes(box1_shapes, box2_shapes)
             
-            map the differences, i.e. the transformation, and save it
-            '''
-
+            #get number of deletes
+            deletes = self.deleteCheck(box1_shapes, box2_shapes)
             
+            #get transformations
+            transformations = self.getTransformations(box1_shapes, box2_shapes, matches)
+            print 'transformations:'
+            print transformations
 
             print problem.name + " ---- box 1"
             for shape in box1_shapes:
