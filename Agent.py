@@ -12,6 +12,7 @@
 from PIL import Image
 import numpy
 
+
 class Agent:
     # The default constructor for your Agent. Make sure to execute any
     # processing necessary before your Agent starts solving problems here.
@@ -52,11 +53,43 @@ class Agent:
     def compareDicts(self, d1, d2):
         return len([k for k in d1.keys() if d1.get(k) == d2.get(k)])
 
+    #get key, given dict value - not very optimal, but useful
+    def getKey(self, d, val):
+        for k, v in d.items():
+            if v == val:
+                return k
+
+    # runs matchShapes logic again, but only on shapes that have not been used yet
+    # Used to recalculate when a more relevant matching shape is found (between figure 1 and 2, for example)
+    def reevaluateMatch(self, used, allshapes, currentShape, box1, box2):
+        notUsed = list(set(allshapes) - set(used))
+
+        similar = []
+        for shape2 in notUsed:
+            relevancy = self.compareDicts(
+                                box1[currentShape].attributes, 
+                                box2[shape2].attributes
+                        )   
+            similar.append(relevancy)
+        
+        i = similar.index(max(similar)) #index of most relevant candidate shape
+        return allshapes[i]
+        
+
 
     #used to figure out which shape from box1 to box2 is most likely corresponding
     #returns dict of mappings: {'a':'c'}
     def matchShapes(self, box1, box2):
-        matches = dict()
+        # matching shapes stored as pairs
+        # this is possibly modified after comparing new shapes, as more relevant ones could be found
+        # this is returned 
+        matches = dict() 
+
+        # keeps track of shapes already used.
+        # If a used shape is found to be the most relevant, check its relevancy score
+            # Relevance: 0 - 7 (7 being identical to pretransformation shape)
+        # { 'b': 7 }
+        used = dict()
 
         self.populateAttributes(box1)
         self.populateAttributes(box2)
@@ -71,19 +104,41 @@ class Agent:
 
             for shape2 in box2list:
 
+                relevancy = self.compareDicts(
+                                box1[shape1].attributes, 
+                                box2[shape2].attributes
+                            )
+
                 similarities.append( 
-                    self.compareDicts(
-                        box1[shape1].attributes, 
-                        box2[shape2].attributes
-                    )
+                    relevancy
                 )
 
-            # get d2 with most similarities to d1 and pair them
-            print similarities
-            i = similarities.index(max(similarities))
-            print(str(i))
-            print box2list[i]
-            matches[shape1] = box2list[i]
+            #get the most similar shape of the ones we saw
+            r = max(similarities) #relevancy
+            i = similarities.index(max(similarities)) #index of most relevant candidate shape
+            candidate = box2list[i] 
+
+  
+            if candidate in used.keys():
+                if used.get(candidate) < r: # if new relevancy is higher, replace and go with new one
+                    
+                    #update used dict
+                    used[candidate] = r
+
+                    #update previous keys in matches
+                    k = self.getKey(matches, candidate)
+                    matches[k] = self.reevaluateMatch(list(used), box2list, shape1, box1, box2)
+
+                    #set current matches key to new shape
+                    matches[shape1] = candidate
+
+                    
+         
+            #new shape, match it up!
+            else:
+                # example: { 'b': 6, 'd': 4}
+                used[candidate] = r
+                matches[shape1] = candidate
         
         print matches
             
