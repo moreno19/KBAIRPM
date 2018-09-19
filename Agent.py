@@ -11,6 +11,7 @@
 # Install Pillow and uncomment this line to access image processing.
 from PIL import Image
 import numpy
+from RavensObject import RavensObject
 
 
 class Agent:
@@ -24,15 +25,26 @@ class Agent:
 
     #add missing attributes to be able to compare (mostly for VERBAL)
     def populateAttributes(self, box):
+        
         for shape in box:
-            if 'angle' not in box[shape].attributes:
-                box[shape].attributes['angle'] = ''
-            if 'alignment' not in box[shape].attributes:
-                box[shape].attributes['alignment'] = ''
-            if 'inside' not in box[shape].attributes:
-                box[shape].attributes['inside'] = ''
-            if 'above' not in box[shape].attributes:
-                box[shape].attributes['above'] = ''
+            try:
+                if 'angle' not in box[shape].attributes:
+                    box[shape].attributes['angle'] = 0
+                if 'alignment' not in box[shape].attributes:
+                    box[shape].attributes['alignment'] = ''
+                if 'inside' not in box[shape].attributes:
+                    box[shape].attributes['inside'] = 0
+                if 'above' not in box[shape].attributes:
+                    box[shape].attributes['above'] = 0
+            except:
+                if 'angle' not in box[shape]:
+                    box[shape]['angle'] = 0
+                if 'alignment' not in box[shape]:
+                    box[shape]['alignment'] = ''
+                if 'inside' not in box[shape]:
+                    box[shape]['inside'] = 0
+                if 'above' not in box[shape]:
+                    box[shape]['above'] = 0
             
 
     # we must be careful in pronunciation  
@@ -46,6 +58,7 @@ class Agent:
             if v == val:
                 return k
 
+    # helper function for matchShapes
     # runs matchShapes logic again, but only on shapes that have not been used yet
     # Used to recalculate when a more relevant matching shape is found (between figure 1 and 2, for example)
     def reevaluateMatch(self, used, allshapes, currentShape, box1, box2):
@@ -67,7 +80,7 @@ class Agent:
     #used to figure out which shape from box1 to box2 is most likely corresponding
     #returns dict of mappings: {'a':'c'}
     def matchShapes(self, box1, box2):
-
+        
         # matching shapes stored as pairs
         # this is possibly modified after comparing new shapes, as more relevant ones could be found
         # this is returned 
@@ -80,7 +93,10 @@ class Agent:
         used = dict()
 
         # convert to list so we can track the shape at certain index
-        box2list = list(box2) 
+        if isinstance(box2, dict):
+            box2list = list(box2) 
+        else:
+            box2list = box2
 
         self.populateAttributes(box1)
         self.populateAttributes(box2)
@@ -90,10 +106,19 @@ class Agent:
 
             for shape2 in box2list:
 
-                relevancy = self.compareDicts(
-                                box1[shape1].attributes, 
-                                box2[shape2].attributes
-                            )
+                try:
+                    relevancy = self.compareDicts(
+                                    box1[shape1].attributes, 
+                                    box2[shape2].attributes
+                                )
+                except:
+                    relevancy = self.compareDicts(
+                                    box1[shape1], 
+                                    box2[shape2]
+                                )   
+                
+                                
+                    
 
                 similarities.append( relevancy )
 
@@ -124,18 +149,23 @@ class Agent:
                 used[candidate] = r
                 matches[shape1] = candidate
         
-        print matches
-        return matches
+        
+        # at the very end, check for any box1 shapes that didn't get matched up.
+        # these were deleted - we need to mark them as such
+        deleted = []
+        for shape in box1:
+            if shape not in matches.keys():
+                deleted.append(shape)
+
+        return matches, deleted
             
 
-    # returns the amount of deletions based on the number of shapes
-    # returns 0 if no deletions
-    def deleteCheck(self, box1, box2):
-        return abs( len(box1) - len(box2) )
+    
+
 
     # get shapes (they are matched now), 
     # compare attribute changes between figure 1 and figure 2
-    # return transformation dictionary
+    # return transformation dictionary, (box1 shape : attributes dict)
     '''
     possible (existing verbal) attributes:
 
@@ -148,20 +178,28 @@ class Agent:
     fill - y/n and bottom, top, left, right
     
     '''
-    def getTransformations(self, box1, box2, matches):
-        transformlist = []
-
+    def getTransformations(self, box1, box2, matches, deleted):
+        allTransforms = dict()
+        
         for shape1, shape2 in matches.items():
             transformations = dict()
             a1 = box1[shape1].attributes
             a2 = box2[shape2].attributes
 
-            #if EXACTLY the same, set empty string for this match - no transformation
+            #add all the deleted shapes
+            for each in deleted:
+                allTransforms[each] = 'deleted'
+
+
+            #if EXACTLY the same, set nochange string for this match - no transformation
             if self.compareDicts(a1, a2) == len(a1): 
-                transformlist.append('nochange')
-                break
+                allTransforms[shape1] = 'nochange'
+                continue #not break LOL
 
             #angle - no change is 0
+            if a1['angle'] == '': a1['angle'] = 0
+            if a2['angle'] == '': a2['angle'] = 0
+
             if a2['angle'] and a1['angle']:
                 transformations['angle'] = int( a2['angle'] ) - int( a1['angle'] )
             else:
@@ -171,47 +209,214 @@ class Agent:
             if a1['shape'] != a2['shape']:
                 transformations['shape'] = [ a1['shape'], a2['shape'] ]
             else:
-                transformations['shape'] = None
+                transformations['shape'] = ''
 
             #above
             if a1['above'] != a2['above']:
-                transformations['above'] = [ a1['above'], a2['above'] ]
-            else:
-                transformations['above'] = None
+                a1aboveCount = len( (a1['above']).split(',') )
+                a2aboveCount = len( (a2['above']).split(',') )
 
-            #TODO - right half, left half, top half, bottom half
+                transformations['above'] = a2aboveCount - a1aboveCount
+            else:
+                transformations['above'] = 0
+
             #fill
             if a1['fill'] == 'no' and a2['fill'] == 'yes':
                 transformations['fill'] = 'shadein'
             elif a1['fill'] == 'yes' and a2['fill'] == 'no':
                 transformations['fill'] = 'deleteshade'
+            elif (a1['fill'] == 'right-half' and a2['fill'] == 'left-half') or (a1['fill'] == 'left-half' and a2['fill'] == 'right-half'):
+                transformations['fill'] = 'left-right'
+            elif (a1['fill'] == 'top-half' and a2['fill'] == 'bottom-half') or (a1['fill'] == 'bottom-half' and a2['fill'] == 'top-half'):
+                transformations['fill'] = 'top-down'
             else:
-                transformations['fill'] = None
+                transformations['fill'] = ''
 
             #alignment - TODO use centers of shape to track movement. For now will only be verbal
             if a1['alignment'] != a2['alignment']:
                 transformations['alignment'] = [ a1['alignment'], a2['alignment'] ]
             else:
-                transformations['alignment'] = None
+                transformations['alignment'] = ''
 
-            #size - small, medium, large, very large, huge
-            sizes = {'small':1, 'medium':2, 'large':3, 'very large':4, 'huge':5 }
+            #size - very small, small, medium, large, very large, huge
+            sizes = {'very small':1, 'small':2, 'medium':3, 'large':4, 'very large':5, 'huge':6 }
             a1size = a1['size']
             a2size = a2['size']
 
             if a1size != a2size: #shrinking and growing
                 transformations['size'] = (sizes[a2size] - sizes[a1size])
             else:
-                transformations['size'] = None
+                transformations['size'] = 0
 
-            #inside
-            #this one needs some more thought
+            #inside - count how many it's inside of
+            if a1['inside'] != a2['inside']:
+                a1aboveCount = len( (a1['inside']).split(',') )
+                a2aboveCount = len( (a2['inside']).split(',') )
 
-            transformlist.append(transformations)
-        return transformlist
+                transformations['inside'] = a2aboveCount - a1aboveCount
+            else:
+                transformations['inside'] = 0
+            
+            
+            allTransforms[shape1] = transformations
+        return allTransforms
 
-        #TODO deal with deletions
 
+
+    # Convert shape, inside, and above to numbers
+    # helper for modifyAttributes()
+    def checkConvert(self, attribute, aType):
+        if not isinstance(attribute, int):
+            if aType is 'size':
+                if attribute == 'very small': attribute = 1
+                elif attribute == 'small': attribute = 2
+                elif attribute == 'medium': attribute = 3
+                elif attribute == 'large': attribute = 4
+                elif attribute == 'very large': attribute = 5
+                elif attribute == 'huge': attribute = 6
+                return attribute
+            elif aType is 'inside' or aType is 'above':
+                return len(attribute.split(','))
+        else:
+            return attribute
+
+    # convert shape number to shape string
+    # helper for modifyattributes()
+    def convert_sizenum_to_sizestring(self, num):
+        if num is 1:
+            return 'very small'
+        if num is 2:
+            return 'small'
+        if num is 3:
+            return 'medium'
+        if num is 4:
+            return 'large'
+        if num is 5:
+            return 'very large'
+        if num is 6:
+            return 'huge'
+
+    # helper for transformBox()
+    def modifyAttributes(self, trans, shapeAtts, shape, deleted):
+        newshape = {'inside': 0, 'above': 0, 'shape': '', 'fill': '', 'angle': 0, 'size': '', 'alignment': ''}
+        
+        if trans == 'nochange':
+            return shapeAtts
+        elif trans == 'deleted':
+            pass
+        else:
+            
+            newshape['angle'] = (int(shapeAtts['angle']) + int(trans['angle']))
+            if newshape.get('angle') > 360:
+                newshape['angle'] = newshape.get('angle') % 360
+            # TODO - try rotating both ways
+
+            if trans['shape'] == '' or trans['shape'] == None:
+                newshape['shape'] = shapeAtts['shape']
+            else: #list of two shapes
+                pass
+                # TODO get actual shape, delete from list, and try all remaining
+                # possible shapes
+            
+            shapeAtts['above'] = self.checkConvert(shapeAtts['above'], 'above')
+            trans['above'] = self.checkConvert(trans['above'], 'above')
+            newshape['above'] = int(shapeAtts['above']) + int(trans['above'])
+        
+            shapeAtts['inside'] = self.checkConvert(shapeAtts['inside'], 'inside')
+            trans['inside'] = self.checkConvert(trans['inside'], 'inside')
+            newshape['inside'] = int(shapeAtts['inside']) + int(trans['inside'])
+
+            shapeAtts['size'] = self.checkConvert(shapeAtts['size'], 'size')
+            trans['size'] = self.checkConvert(trans['size'], 'size')
+            newshape['size'] = int(shapeAtts['size']) + int(trans['size'])
+            newshape['size'] = self.convert_sizenum_to_sizestring( newshape.get('size') )
+
+            newshape['alignment'] = trans['alignment'] # list with 2 shapes in it
+
+            #fill
+            if trans['fill'] == 'shadein':
+                newshape['fill'] = 'yes'
+            elif trans['fill'] == 'deleteshade':
+                newshape['fill'] = 'no'
+            elif trans['fill'] == 'left-right' and shapeAtts['fill'] == 'left-half':
+                newshape['fill'] = 'right-half'
+            elif trans['fill'] == 'left-right' and shapeAtts['fill'] == 'right-half':
+                newshape['fill'] = 'left-half'
+            elif trans['fill'] == 'top-down' and shapeAtts['fill'] == 'top-half':
+                newshape['fill'] = 'bottom-half'
+            elif trans['fill'] == 'top-down' and shapeAtts['fill'] == 'bottom-half':
+                newshape['fill'] = 'top-half'
+            elif trans['fill'] == '' or trans['fill'] == None:
+                newshape['fill'] = shapeAtts['fill']
+            
+        return newshape
+
+    # apply transformation attributes to box 3, to get box4
+    # mapping is 3 -> 1, key is shapes from box3, val is shape from box1
+    def transformBox(self, box3, mapping, transformations, deleted):
+        attributes = []
+        keys = []
+
+        c = 97 #used to construct dict keys
+
+        for name, shape3 in box3.items():
+            if name in mapping:
+                shape1 = mapping.get(name) #returns shape1 name
+                trans = transformations.get(shape1) #returns transformation dict
+                attributes.append(self.modifyAttributes(trans, shape3.attributes, name, deleted))
+            else:
+                # new shapes in box3 that don't match up to any in
+                # box 1
+                
+                attributes.append(shape3)
+
+            k = str(chr(c))
+            c += 1
+            keys.append(k)
+
+        box4 = dict(zip(keys, attributes))
+        return box4
+                
+
+    # used to get answers and extract their shapes
+    def getAnswers(self, possibleAnswers, box):
+        allScores = []
+    
+        for eachAnswer in possibleAnswers:
+            answerScore = []
+
+            shapes = self.setupAnswers(eachAnswer)
+
+            # get matches (potentialanswer: box4)
+            matches, _ = self.matchShapes(shapes, box)
+            
+            # iterate over matches and compare attributes
+            for potential, guess in matches.items():
+                
+                similarity = self.compareDicts(
+                                shapes[potential],
+                                box[guess]
+                            )
+                answerScore.append(similarity)
+            
+            avgscore = sum(answerScore) / len(answerScore)
+            allScores.append(avgscore)
+
+        guess = allScores.index(max(allScores)) + 1
+        
+        if allScores.count(max(allScores)) > 1:
+            return -1
+        else:
+            return guess
+
+
+
+
+    def setupAnswers(self, figure):
+        a = dict()
+        for k, v in figure.objects.items(): 
+            a['k'] = v.attributes
+        return a
 
 
 
@@ -227,6 +432,10 @@ class Agent:
     # Make sure to return your answer *as an integer* at the end of Solve().
     # Returning your answer as a string may cause your program to crash.
     def Solve(self,problem):
+        #skip challenge problems for now
+        if problem.name.split(' ')[0] == 'Challenge' or problem.problemType != '2x2':
+            return -1
+
         if problem.problemType == "2x2":
 
             #get the existing 3 boxes (aka figures)
@@ -234,37 +443,47 @@ class Agent:
             box2 = problem.figures["B"]
             box3 = problem.figures["C"]
 
+            #get the 6 possible answers for later
+            A1 = problem.figures['1']
+            A2 = problem.figures['2']
+            A3 = problem.figures['3']
+            A4 = problem.figures['4']
+            A5 = problem.figures['5']
+            A6 = problem.figures['6']
+            possibleAnswers = [A1, A2, A3, A4, A5, A6]
+            
+            
+
             #get the objects from each box and store them in a set
             box1_shapes = box1.objects
             box2_shapes = box2.objects
             box3_shapes = box3.objects
 
+
             #match up corresponding shapes between transformations
-            matches = self.matchShapes(box1_shapes, box2_shapes)
-            
-            #get number of deletes
-            deletes = self.deleteCheck(box1_shapes, box2_shapes)
+            matches12, deleted12 = self.matchShapes(box1_shapes, box2_shapes)
+        
             
             #get transformations
-            transformations = self.getTransformations(box1_shapes, box2_shapes, matches)
-            print 'transformations:'
-            print transformations
+            transformations = self.getTransformations(box1_shapes, box2_shapes, matches12, deleted12)
+            
+
+            # get third box, and match up all the shapes to shapes in box 1
+            # we can't start the transformation process without doing this first
+            mapping13, _ = self.matchShapes(box3_shapes, box1_shapes)
+
+            # apply transformations to box3 to get box4
+            # will need to pass more residual information when 'trying'
+            # different rotations, shape possibilities, etc.
+            box4 = self.transformBox( box3_shapes, mapping13, transformations, deleted12)
+          
+            
+            
+            #check box 4 against all answers!
+            guess = self.getAnswers(possibleAnswers, box4)
 
             print problem.name + " ---- box 1"
-            for shape in box1_shapes:
-                print box1_shapes[shape].name
-                print box1_shapes[shape].attributes
-                
-            print '\n'
-            print problem.name + " ---- box 2"
-            for shape in box2_shapes:
-                print box2_shapes[shape].name
-                print box2_shapes[shape].attributes
-            print '\n'
-            print '\n'
+            "guess is:"
+            print guess
 
-
-        else:
-            pass
-
-        return -1
+            return guess

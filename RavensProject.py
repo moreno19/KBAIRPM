@@ -49,7 +49,7 @@ def solve():
                 #try:
                 answer = agent.Solve(problem)  # The problem will be passed to your agent as a RavensProblem object as a parameter to the Solve method
                                                 # Your agent should return its answer at the conclusion of the execution of Solve.
-
+                
                 results.write("%s,%s,%d\n" % (set.name, problem.name, answer))
     r.close()
 
