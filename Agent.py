@@ -45,6 +45,8 @@ class Agent:
                     box[shape]['inside'] = 0
                 if 'above' not in box[shape]:
                     box[shape]['above'] = 0
+
+        return box
             
 
     # we must be careful in pronunciation  
@@ -75,10 +77,29 @@ class Agent:
         i = similar.index(max(similar)) #index of most relevant candidate shape
         return allshapes[i]
         
+    def preTransformCheck(self, box1, box3):
+        # If onethree is true, check if boxes one and three are identical. If they are, then
+        # answer for b4 is same as b2
+        box1 = self.populateAttributes(box1)
+        box3 = self.populateAttributes(box3)
+
+        attributes1 = []
+        attributes3 = []
+        for shape in box1.values():
+            attributes1.append(shape.attributes)
+        for shape in box3.values():
+            attributes3.append(shape.attributes)
+
+        if attributes1 == attributes3:
+            return True
+        else:
+            return False
 
 
     #used to figure out which shape from box1 to box2 is most likely corresponding
     #returns dict of mappings: {'a':'c'}
+    # onethree is used for cases when b1 and b3 are identical, then we can argue that
+    # 2 and 4 will be identical and skip the process
     def matchShapes(self, box1, box2):
         
         # matching shapes stored as pairs
@@ -98,8 +119,8 @@ class Agent:
         else:
             box2list = box2
 
-        self.populateAttributes(box1)
-        self.populateAttributes(box2)
+        box1 = self.populateAttributes(box1)
+        box2 = self.populateAttributes(box2)
 
         for shape1 in box1:
             similarities = []
@@ -377,6 +398,78 @@ class Agent:
         box4 = dict(zip(keys, attributes))
         return box4
                 
+    # used only when box1 and box3 are the same
+    def box2AsAnswer(self, possibleAnswers, box):
+        allScores = []
+
+        for eachAnswer in possibleAnswers:
+            answerScore = []
+            shapes = []
+            t = []
+
+            #setup all attributes in figure in list for comparison
+            for v in eachAnswer.objects:
+                shapes.append(eachAnswer.objects.get(v).attributes)
+            for _, v in box.items():
+                t.append(v.attributes)
+            box2 = t
+
+            # if they have a different number of shapes, just continue
+            # this one won't be the right answer
+            if len(shapes) != len(box2):
+                answerScore.append(0)
+                continue
+
+            # if the have the same number of shapes though:
+            # populate missing attributes so we can compare
+            for att in shapes:
+                if 'angle' not in att:
+                    att['angle'] = 0
+                if 'inside' not in att:
+                    att['inside'] = 0
+                if 'above' not in att:
+                    att['above'] = 0
+                if 'alignment' not in att:
+                    att['alignment'] = ''
+
+            for att in box2:
+                if 'angle' not in att:
+                    att['angle'] = 0
+                if 'inside' not in att:
+                    att['inside'] = 0
+                if 'above' not in att:
+                    att['above'] = 0
+                if 'alignment' not in att:
+                    att['alignment'] = ''
+
+            #compare the two lists
+            # take the average number of similar attributes across
+            # all shapes between the two boxes
+            shapesimilarityall = []
+            for i in xrange(len(box2)):
+                shapesimilarity = self.compareDicts(
+                                shapes[i],
+                                box2[i]
+                                )   
+                shapesimilarityall.append(shapesimilarity)
+            similarity = sum(shapesimilarityall) / len(shapesimilarityall)
+
+            answerScore.append(similarity)
+            
+            avgscore = sum(answerScore) / len(answerScore)
+            allScores.append(avgscore)
+
+        guess = allScores.index(max(allScores)) + 1
+        
+        if allScores.count(max(allScores)) > 1:
+            print "There STILL ambiguity"
+            return -1
+        else:
+            print "guess is:"
+            print guess
+            return guess
+
+
 
     # used to get answers and extract their shapes
     def getAnswers(self, possibleAnswers, box):
@@ -404,7 +497,17 @@ class Agent:
 
         guess = allScores.index(max(allScores)) + 1
         
+        print "first viable guess is:"
+        print str(guess)
+
         if allScores.count(max(allScores)) > 1:
+
+            print "possible solutions that tied:"
+            m = max(allScores)
+            for i in xrange(len(allScores)):
+                if allScores[i] == m:
+                    print i + 1
+
             return -1
         else:
             return guess
@@ -468,22 +571,28 @@ class Agent:
             transformations = self.getTransformations(box1_shapes, box2_shapes, matches12, deleted12)
             
 
-            # get third box, and match up all the shapes to shapes in box 1
-            # we can't start the transformation process without doing this first
-            mapping13, _ = self.matchShapes(box3_shapes, box1_shapes)
+            # Before we bother mapping shapes and transforming, check if boxes 1 and 3 are identical
+            # If so, then 2 and 4 will be identical
+            identical = self.preTransformCheck(box3_shapes, box1_shapes)
 
-            # apply transformations to box3 to get box4
-            # will need to pass more residual information when 'trying'
-            # different rotations, shape possibilities, etc.
-            box4 = self.transformBox( box3_shapes, mapping13, transformations, deleted12)
-          
+            if not identical:
+                # get third box, and match up all the shapes to shapes in box 1
+                # we can't start the transformation process without doing this first
+                mapping13, _ = self.matchShapes(box3_shapes, box1_shapes)
+
+                # apply transformations to box3 to get box4
+                # will need to pass more residual information when 'trying'
+                # different rotations, shape possibilities, etc.
+                box4 = self.transformBox( box3_shapes, mapping13, transformations, deleted12)
             
-            
-            #check box 4 against all answers!
-            guess = self.getAnswers(possibleAnswers, box4)
+                
+                
+                #check box 4 against all answers!
+                guess = self.getAnswers(possibleAnswers, box4)
 
-            print problem.name + " ---- box 1"
-            "guess is:"
-            print guess
+            else: #1 and 3 identical, just get box 2
+                guess = self.box2AsAnswer(possibleAnswers, box2_shapes)  
 
+
+            print problem.name + " ---- box 1\n\n"
             return guess
