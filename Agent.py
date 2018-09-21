@@ -36,6 +36,8 @@ class Agent:
                     box[shape].attributes['inside'] = 0
                 if 'above' not in box[shape].attributes:
                     box[shape].attributes['above'] = 0
+                if 'overlaps' in box[shape].attributes:
+                    box[shape].pop('overlaps')
             except:
                 if 'angle' not in box[shape]:
                     box[shape]['angle'] = 0
@@ -45,6 +47,8 @@ class Agent:
                     box[shape]['inside'] = 0
                 if 'above' not in box[shape]:
                     box[shape]['above'] = 0
+                if 'overlaps' in box[shape]:
+                    box[shape].pop('overlaps')
 
         return box
             
@@ -68,10 +72,16 @@ class Agent:
 
         similar = []
         for shape2 in notUsed:
-            relevancy = self.compareDicts(
-                                box1[currentShape].attributes, 
-                                box2[shape2].attributes
-                        )   
+            try:
+                relevancy = self.compareDicts(
+                                    box1[currentShape].attributes, 
+                                    box2[shape2].attributes
+                            )   
+            except:
+                relevancy = self.compareDicts(
+                                    box1[currentShape],
+                                    box2[shape2]
+                            )
             similar.append(relevancy)
         
         i = similar.index(max(similar)) #index of most relevant candidate shape
@@ -85,9 +95,23 @@ class Agent:
 
         attributes1 = []
         attributes3 = []
+
         for shape in box1.values():
+
+            #split 'inside', since we skipped the transformation
+            if shape.attributes['inside'] == '':
+                shape.attributes['inside'] = 0
+            elif not isinstance( shape.attributes['inside'], int):
+                shape.attributes['inside'] = len( shape.attributes.get('inside').split(',') )
             attributes1.append(shape.attributes)
+        
         for shape in box3.values():
+
+            #split 'inside', since we skipped the transformation
+            if shape.attributes['inside'] == '':
+                shape.attributes['inside'] = 0
+            elif not isinstance( shape.attributes['inside'], int):
+                shape.attributes['inside'] = len( shape.attributes.get('inside').split(',') )
             attributes3.append(shape.attributes)
 
         if attributes1 == attributes3:
@@ -409,8 +433,12 @@ class Agent:
 
             #setup all attributes in figure in list for comparison
             for v in eachAnswer.objects:
+                if isinstance(eachAnswer.objects.get(v).attributes.get('inside'), str):
+                    eachAnswer.objects.get(v).attributes['inside'] = len( eachAnswer.objects.get(v).attributes.get('inside').split(',') )
                 shapes.append(eachAnswer.objects.get(v).attributes)
             for _, v in box.items():
+                if isinstance(v.attributes.get('inside'), str):
+                    v.attributes['inside'] = len( v.attributes.get('inside').split(',') )
                 t.append(v.attributes)
             box2 = t
 
@@ -431,6 +459,8 @@ class Agent:
                     att['above'] = 0
                 if 'alignment' not in att:
                     att['alignment'] = ''
+                if 'overlaps' in att:
+                    att.pop('overlaps')
 
             for att in box2:
                 if 'angle' not in att:
@@ -441,19 +471,30 @@ class Agent:
                     att['above'] = 0
                 if 'alignment' not in att:
                     att['alignment'] = ''
+                if 'overlaps' in att:
+                    att.pop('overlaps')
 
             #compare the two lists
             # take the average number of similar attributes across
             # all shapes between the two boxes
             shapesimilarityall = []
+
+            shapes.sort()
+            box2.sort()
+            
+
             for i in xrange(len(box2)):
                 shapesimilarity = self.compareDicts(
                                 shapes[i],
                                 box2[i]
                                 )   
                 shapesimilarityall.append(shapesimilarity)
-            similarity = sum(shapesimilarityall) / len(shapesimilarityall)
+                print shapes[i]
+                print box2[i]
 
+                print shapesimilarity
+            print '\n'
+            similarity = sum(shapesimilarityall)
             answerScore.append(similarity)
             
             avgscore = sum(answerScore) / len(answerScore)
@@ -462,24 +503,23 @@ class Agent:
         guess = allScores.index(max(allScores)) + 1
         
         if allScores.count(max(allScores)) > 1:
+            print allScores
             print "There STILL ambiguity"
             return -1
         else:
-            print "guess is:"
-            print guess
             return guess
 
 
 
     # used to get answers and extract their shapes
-    def getAnswers(self, possibleAnswers, box):
+    def getAnswers(self, possibleAnswers, box, numdeleted):
         allScores = []
     
         for eachAnswer in possibleAnswers:
             answerScore = []
 
             shapes = self.setupAnswers(eachAnswer)
-
+            
             # get matches (potentialanswer: box4)
             matches, _ = self.matchShapes(shapes, box)
             
@@ -492,14 +532,26 @@ class Agent:
                             )
                 answerScore.append(similarity)
             
-            avgscore = sum(answerScore) / len(answerScore)
+
+            # TODO - also with deleted, check for APPENDED
+            # if the number of shapes don't match up, don't even bother with that choice
+            # UNLESS, the difference is the same as the numdeleted
+            if len(box) != len(eachAnswer.objects) and abs( len(box) - len(eachAnswer.objects) ) != numdeleted:
+                avgscore = 0
+            else:
+                avgscore = sum(answerScore) / len(answerScore)
+
+            #get average scores of all shapes     
             allScores.append(avgscore)
 
         guess = allScores.index(max(allScores)) + 1
         
-        print "first viable guess is:"
-        print str(guess)
+        print "multiple choice attributes are:"
+        for k,v in possibleAnswers[guess-1].objects.items():
+            print v.attributes
+        print '\n'
 
+  
         if allScores.count(max(allScores)) > 1:
 
             print "possible solutions that tied:"
@@ -518,7 +570,7 @@ class Agent:
     def setupAnswers(self, figure):
         a = dict()
         for k, v in figure.objects.items(): 
-            a['k'] = v.attributes
+            a[k] = v.attributes
         return a
 
 
@@ -540,7 +592,8 @@ class Agent:
             return -1
 
         if problem.problemType == "2x2":
-
+            print 'vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv'
+            print problem.name
             #get the existing 3 boxes (aka figures)
             box1 = problem.figures["A"]
             box2 = problem.figures["B"]
@@ -563,9 +616,14 @@ class Agent:
             box3_shapes = box3.objects
 
 
-            #match up corresponding shapes between transformations
+            # match up corresponding shapes between transformations
             matches12, deleted12 = self.matchShapes(box1_shapes, box2_shapes)
-        
+            
+            # used to check possible answers
+            # for example, if numdeleted is none, then number of shapes in 
+            # both box3 and the prediction should be the same
+            numdeleted = len(deleted12) 
+
             
             #get transformations
             transformations = self.getTransformations(box1_shapes, box2_shapes, matches12, deleted12)
@@ -576,6 +634,7 @@ class Agent:
             identical = self.preTransformCheck(box3_shapes, box1_shapes)
 
             if not identical:
+                print "NOT IDENTICAL"
                 # get third box, and match up all the shapes to shapes in box 1
                 # we can't start the transformation process without doing this first
                 mapping13, _ = self.matchShapes(box3_shapes, box1_shapes)
@@ -585,14 +644,24 @@ class Agent:
                 # different rotations, shape possibilities, etc.
                 box4 = self.transformBox( box3_shapes, mapping13, transformations, deleted12)
             
-                
+                print "box4 calculated attributes:"
+                print box4    
+                print '\n'
                 
                 #check box 4 against all answers!
-                guess = self.getAnswers(possibleAnswers, box4)
+                guess = self.getAnswers(possibleAnswers, box4, numdeleted)
+                
+                print "transformation was:"
+                print transformations
 
+                
             else: #1 and 3 identical, just get box 2
+                print "IDENTICAL"
                 guess = self.box2AsAnswer(possibleAnswers, box2_shapes)  
 
+            print "guess was:"
+            print guess
+            print '^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^'
+            print '\n\n'
 
-            print problem.name + " ---- box 1\n\n"
             return guess
